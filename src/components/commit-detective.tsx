@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useFormState, useFormStatus } from 'react-dom';
+import { useFormStatus } from 'react-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -35,7 +35,7 @@ function SubmitButton() {
 
 export function CommitDetective() {
   const { toast } = useToast();
-  const [state, formAction] = useFormState(analyzePullRequest, undefined);
+  const [state, formAction] = React.useActionState(analyzePullRequest, undefined);
   const [showToken, setShowToken] = React.useState(false);
 
   const form = useForm<FormValues>({
