@@ -1,6 +1,7 @@
 
 'use client';
 
+import * as React from 'react';
 import type { AnalyzeCommitLineageOutput } from '@/ai/flows/analyze-commit-lineage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GitCommit, GitBranch, GitMerge, Zap, ArrowDown, User, Calendar } from 'lucide-react';
