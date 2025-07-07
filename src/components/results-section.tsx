@@ -4,6 +4,7 @@ import type { AnalysisResult } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CommitList } from '@/components/commit-list';
 import { Clock, GitPullRequestArrow, Milestone } from 'lucide-react';
+import { CommitTree } from './commit-tree';
 
 export function ResultsSection({ result }: { result: AnalysisResult }) {
   return (
@@ -38,19 +39,9 @@ export function ResultsSection({ result }: { result: AnalysisResult }) {
         </Card>
       </div>
       
-      <Card className="shadow-md hover:shadow-xl transition-shadow">
-        <CardHeader>
-          <CardTitle className="font-headline">Commit Lineage Trace</CardTitle>
-          <CardDescription>
-            AI-generated analysis of the commit history, accounting for squashes, rebases, and force pushes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <pre className="font-code text-sm bg-muted p-4 rounded-md overflow-x-auto">
-            {result.commitLineage.commitLineage}
-          </pre>
-        </CardContent>
-      </Card>
+      {result.commitLineage && result.commitLineage.nodes && (
+        <CommitTree data={result.commitLineage} />
+      )}
 
       <CommitList commits={result.githubData.commits} />
     </div>

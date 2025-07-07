@@ -57,7 +57,7 @@ export async function analyzePullRequest(
     }
 
     const commitHistory = githubData.commits
-      .map(c => `Commit: ${c.sha}\nAuthor: ${c.commit.author.name}\nDate: ${c.commit.author.date}\nMessage: ${c.commit.message}\n`)
+      .map(c => `Commit: ${c.sha}\nAuthor: ${c.commit.author.name} <${c.commit.author.email}>\nDate: ${c.commit.author.date}\nParents: ${c.parents.map(p => p.sha).join(', ')}\nMessage: ${c.commit.message}\n`)
       .join('\n---\n');
 
     // Step 2 & 3: Calculate LTC and Analyze Lineage in parallel
