@@ -60,17 +60,17 @@ export function CommitDetective() {
   }, [state, toast]);
 
   return (
-    <div className="space-y-8">
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="font-headline text-3xl">Analyze Commit Lineage</CardTitle>
-          <CardDescription>
-            Enter a GitHub repository and pull request to analyze its commit history and calculate DORA metrics.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form action={formAction} className="space-y-6">
+    <Form {...form}>
+      <form action={formAction} className="space-y-8">
+        <Card className="shadow-lg">
+          <CardHeader>
+            <CardTitle className="font-headline text-3xl">Analyze Commit Lineage</CardTitle>
+            <CardDescription>
+              Enter a GitHub repository and pull request to analyze its commit history and calculate DORA metrics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
               <FormField
                 control={form.control}
                 name="githubToken"
@@ -137,24 +137,29 @@ export function CommitDetective() {
                 )}
               />
               <SubmitButton />
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-      
-      <AnimatePresence>
-        {useFormStatus().pending && <LoadingState />}
-      </AnimatePresence>
-      
-      {state?.result && <ResultsSection result={state.result} />}
-    </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <StatusDisplay result={state?.result} />
+      </form>
+    </Form>
   );
 }
 
-const AnimatePresence = ({ children }: { children: React.ReactNode }) => {
-    // Basic presence simulation
-    return <>{children}</>;
-};
+function StatusDisplay({ result }: { result?: any }) {
+  const { pending } = useFormStatus();
+
+  if (pending) {
+    return <LoadingState />;
+  }
+
+  if (result) {
+    return <ResultsSection result={result} />;
+  }
+
+  return null;
+}
 
 function LoadingState() {
   return (
