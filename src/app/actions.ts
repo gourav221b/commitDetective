@@ -31,7 +31,7 @@ export async function analyzePullRequest(
 
     const { githubToken, repoOwner, repoName, pullRequestNumber } = validatedFields.data;
 
-    // The main flow now orchestrates everything, including data fetching via tools.
+    // This now calls the manual, deterministic lineage builder.
     const commitLineage = await analyzeCommitLineage({
       repoOwner,
       repoName,
@@ -39,7 +39,6 @@ export async function analyzePullRequest(
       githubToken,
     });
 
-    // The result structure is now simpler and focused on the lineage.
     return { result: { commitLineage } };
 
   } catch (error: any) {
@@ -50,14 +49,10 @@ export async function analyzePullRequest(
       errorMessage = "Repository or Pull Request not found. Please check your inputs.";
     } else if (error.status === 401) {
       errorMessage = "Invalid GitHub token. Please check your token and permissions.";
+    } else if (error.status === 403) {
+      errorMessage = "GitHub API rate limit exceeded. Please try again later or use a different token.";
     } else if (error instanceof Error) {
-      if (error.message.includes('NOT_FOUND')) {
-        errorMessage = "Repository or Pull Request not found. Please check your inputs and the tool's permissions.";
-      } else if (error.message.includes('UNAUTHENTICATED') || error.message.includes('401')) {
-        errorMessage = "Invalid GitHub token. Please check your token and permissions.";
-      } else {
-        errorMessage = "An AI-related error occurred. The model may have been unable to process the request. Please check the console for more details.";
-      }
+      errorMessage = error.message;
     }
     return { error: errorMessage };
   }

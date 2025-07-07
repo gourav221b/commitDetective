@@ -1,87 +1,120 @@
-// This is a server-side file.
 'use server';
 
-/**
- * @fileOverview Analyzes the commit history of a pull request to trace the lineage of commits, recursively handling nested PRs.
- *
- * - analyzeCommitLineage - A function that analyzes the commit lineage.
- * - AnalyzeCommitLineageInput - The input type for the analyzeCommitLineage function.
- * - AnalyzeCommitLineageOutput - The return type for the analyzeCommitLineage function.
- */
+import { Octokit } from '@octokit/rest';
+import type { AnalyzeCommitLineageOutput, CommitNode } from '@/lib/types';
+import { getPullRequestData } from '@/ai/tools/github-tools';
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
-import {getPullRequestData} from '@/ai/tools/github-tools';
-
-const AnalyzeCommitLineageInputSchema = z.object({
-  repoOwner: z.string().describe('The owner of the GitHub repository.'),
-  repoName: z.string().describe('The name of the GitHub repository.'),
-  pullRequestNumber: z.number().describe('The initial pull request number to start the analysis from.'),
-  githubToken: z.string().describe('The GitHub token for authentication.'),
-});
-export type AnalyzeCommitLineageInput = z.infer<typeof AnalyzeCommitLineageInputSchema>;
-
-const CommitNodeSchema = z.object({
-  sha: z.string().describe('The full SHA of the commit.'),
-  shortSha: z.string().describe('The first 7 characters of the SHA.'),
-  message: z.string().describe('The commit message.'),
-  author: z.string().describe('The name of the commit author.'),
-  date: z.string().describe('The date of the commit in ISO 8601 format.'),
-  parents: z.array(z.string()).describe('An array of parent commit SHAs.'),
-  branch: z.string().optional().describe('The branch this commit belongs to, e.g., "feature/new-login" or "main".'),
-  type: z.string().optional().describe('Type of event, e.g., "Merge Commit", "Squash", "Rebase", "Force Push", or "Commit".')
-});
-
-const AnalyzeCommitLineageOutputSchema = z.object({
-    summary: z.string().describe('A high-level text summary of the commit lineage, explaining key events like squashes or rebases, and mentioning all PRs that were analyzed.'),
-    nodes: z.array(CommitNodeSchema).describe('A flat list of all relevant commits as nodes for building a visualization. The client application will use the `parents` array within each node to reconstruct the tree structure.'),
-});
-
-export type AnalyzeCommitLineageOutput = z.infer<typeof AnalyzeCommitLineageOutputSchema>;
-
-export async function analyzeCommitLineage(input: AnalyzeCommitLineageInput): Promise<AnalyzeCommitLineageOutput> {
-  return analyzeCommitLineageFlow(input);
+function parsePrNumberFromMessage(message: string): number | null {
+  const match = message.match(/\(#(\d+)\)/);
+  if (match && match[1]) {
+    return parseInt(match[1], 10);
+  }
+  return null;
 }
 
-const analyzeCommitLineagePrompt = ai.definePrompt({
-  name: 'analyzeCommitLineagePrompt',
-  input: {schema: AnalyzeCommitLineageInputSchema},
-  output: {schema: AnalyzeCommitLineageOutputSchema},
-  tools: [getPullRequestData],
-  prompt: `You are a Git detective, specializing in recursively tracing commit history across multiple nested pull requests. Your mission is to build a complete and accurate commit lineage graph.
+// This input type is kept for compatibility with the calling action.
+export interface AnalyzeCommitLineageInput {
+  repoOwner: string;
+  repoName: string;
+  pullRequestNumber: number;
+  githubToken: string;
+}
 
-You have access to a powerful tool: \`getPullRequestData\`.
+/**
+ * Manually builds a commit lineage by recursively fetching pull request data.
+ * This is a deterministic replacement for the previous AI-based approach.
+ */
+export async function analyzeCommitLineage(
+  input: AnalyzeCommitLineageInput
+): Promise<AnalyzeCommitLineageOutput> {
+  const { repoOwner, repoName, pullRequestNumber: initialPullRequestNumber, githubToken } = input;
+  const octokit = new Octokit({ auth: githubToken });
+  const nodes = new Map<string, CommitNode>();
+  const prQueue: number[] = [initialPullRequestNumber];
+  const processedPRs = new Set<number>();
+  const prsAnalyzed: number[] = [];
 
-Your Process:
-1.  **Start Exploration**: Begin with the initial PR number provided (PR {{{pullRequestNumber}}}). Use the \`getPullRequestData\` tool to fetch its data. Maintain a list of PR numbers you have already processed to avoid infinite loops.
-2.  **Recursive Analysis**:
-    *   Examine each commit from the tool's response.
-    *   Pay close attention to merge/squash commit messages. They often contain references to the original PR in the format \`(#<PR_NUMBER>)\`.
-    *   If you find a commit that squashes or merges another PR, and you haven't processed that PR number yet, you **MUST** call \`getPullRequestData\` for that new PR number to get its underlying commits.
-    *   Continue this recursive process until no new, unprocessed PRs are found.
-3.  **Build the Lineage Graph**:
-    *   Collect all unique commits from all the tool calls you made.
-    *   For each commit, create a \`node\` object. If a commit author is not available, use the committer's name or 'N/A'. Ensure every node has its full SHA, a 7-character short SHA, message, author, date, and its correct parent SHAs.
-    *   **Crucially handle squash merges**: A squash merge commit on a target branch (e.g., \`main\`) breaks the direct git parentage to the feature branch commits. To represent this flow visually, you must manually add the SHA of the **last commit from the squashed feature branch** as a parent to the squash merge commit's node in the \`parents\` array. This creates the visual link in the tree.
-    *   Identify the branch for each commit (e.g., "feature/pr-123", "main"). Commits from \`prCommits\` belong to a feature branch, and the \`mergeCommit\` belongs to the target branch.
-    *   Assign a \`type\` to each node: "Squash", "Merge Commit", or "Commit".
-4.  **Final Output**:
-    *   Combine all collected nodes into a single, flat \`nodes\` array. The client will build the tree from this array using the parent relationships.
-    *   Write a comprehensive \`summary\` explaining the lineage you discovered. Mention all the PR numbers you analyzed and describe the key events, especially how different branches were squashed or merged.
+  while (prQueue.length > 0) {
+    const pullRequestNumber = prQueue.shift()!; 
+    if (processedPRs.has(pullRequestNumber)) {
+      continue;
+    }
 
-Your final output must be a single JSON object matching the output schema.
-`,
-});
+    processedPRs.add(pullRequestNumber);
+    prsAnalyzed.push(pullRequestNumber);
 
-const analyzeCommitLineageFlow = ai.defineFlow(
-  {
-    name: 'analyzeCommitLineageFlow',
-    inputSchema: AnalyzeCommitLineageInputSchema,
-    outputSchema: AnalyzeCommitLineageOutputSchema,
-  },
-  async input => {
-    // The model will use the tool to fetch all necessary data.
-    const {output} = await analyzeCommitLineagePrompt(input);
-    return output!;
+    const prData = await getPullRequestData(octokit, repoOwner, repoName, pullRequestNumber);
+    
+    const prBranchName = prData.prDetails.head.ref;
+
+    // Process all commits from the PR branch
+    for (const commit of prData.prCommits) {
+      if (nodes.has(commit.sha)) continue;
+
+      nodes.set(commit.sha, {
+        sha: commit.sha,
+        shortSha: commit.sha.substring(0, 7),
+        message: commit.commit.message,
+        author: commit.commit.author?.name || 'N/A',
+        date: commit.commit.author?.date || new Date().toISOString(),
+        parents: commit.parents.map(p => p.sha),
+        branch: prBranchName,
+        type: 'Commit',
+      });
+
+      const nestedPrNumber = parsePrNumberFromMessage(commit.commit.message);
+      if (nestedPrNumber && !processedPRs.has(nestedPrNumber)) {
+        prQueue.push(nestedPrNumber);
+      }
+    }
+
+    // Process the merge/squash commit
+    if (prData.mergeCommit) {
+      const mergeCommit = prData.mergeCommit;
+      const mergeCommitSha = mergeCommit.sha;
+      
+      const nestedPrNumber = parsePrNumberFromMessage(mergeCommit.commit.message);
+      if (nestedPrNumber && !processedPRs.has(nestedPrNumber)) {
+        prQueue.push(nestedPrNumber);
+      }
+      
+      const parents = mergeCommit.parents.map(p => p.sha);
+      let type = 'Merge Commit';
+      
+      const isSquash = !prData.prCommits.some(c => c.sha === mergeCommitSha) && nestedPrNumber;
+      
+      if (isSquash) {
+        type = 'Squash';
+        const lastFeatureCommit = prData.prCommits[prData.prCommits.length - 1];
+        if (lastFeatureCommit && !parents.includes(lastFeatureCommit.sha)) {
+          parents.push(lastFeatureCommit.sha);
+        }
+      }
+      
+      if (!nodes.has(mergeCommitSha)) {
+        nodes.set(mergeCommitSha, {
+          sha: mergeCommitSha,
+          shortSha: mergeCommitSha.substring(0, 7),
+          message: mergeCommit.commit.message,
+          author: mergeCommit.commit.author?.name || 'N/A',
+          date: mergeCommit.commit.author?.date || new Date().toISOString(),
+          parents: parents,
+          branch: prData.prDetails.base.ref,
+          type: type,
+        });
+      } else {
+        const existingNode = nodes.get(mergeCommitSha)!;
+        existingNode.branch = prData.prDetails.base.ref;
+        existingNode.type = type;
+        existingNode.parents = parents;
+      }
+    }
   }
-);
+
+  const summary = `Analyzed ${prsAnalyzed.length} pull request(s): #${prsAnalyzed.join(', #')}. Found ${nodes.size} unique commits. This graph shows how commits from feature branches were merged or squashed.`;
+
+  return {
+    summary,
+    nodes: Array.from(nodes.values()),
+  };
+}

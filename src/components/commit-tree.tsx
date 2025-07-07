@@ -2,13 +2,11 @@
 'use client';
 
 import * as React from 'react';
-import type { AnalyzeCommitLineageOutput } from '@/ai/flows/analyze-commit-lineage';
+import type { AnalyzeCommitLineageOutput, CommitNode as CommitNodeData } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GitCommit, GitBranch, GitMerge, Zap, ArrowDown, User, Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-
-type CommitNodeData = AnalyzeCommitLineageOutput['nodes'][0];
 
 // A map to store nodes by SHA for easy lookup
 type NodeMap = Map<string, CommitNodeData & { children: CommitNodeData[] }>;
@@ -39,6 +37,11 @@ function buildTree(nodes: CommitNodeData[]): (CommitNodeData & { children: Commi
           if (!parentNode?.children.some(c => c.sha === currentNode.sha)) {
             parentNode?.children.push(currentNode);
           }
+        } else {
+            // Parent is not in our collection, so this node could be a root
+            if (!rootNodes.some(r => r.sha === currentNode.sha)) {
+              rootNodes.push(currentNode);
+            }
         }
       });
     }
@@ -55,12 +58,12 @@ function buildTree(nodes: CommitNodeData[]): (CommitNodeData & { children: Commi
   rootNodes.sort((a, b) => getCommitDate(a.sha) - getCommitDate(b.sha));
   rootNodes.forEach(sortChildrenRecursive as any);
   
-  // Remove duplicates from rootNodes
-  const uniqueRootNodes = rootNodes.filter((node, index, self) => 
-    index === self.findIndex((t) => t.sha === node.sha)
+  // Remove duplicates from rootNodes that might have been added as children of external parents
+  const finalRootNodes = rootNodes.filter(node => 
+      !Array.from(nodeMap.values()).some(parent => parent.children.some(child => child.sha === node.sha))
   );
 
-  return uniqueRootNodes;
+  return finalRootNodes;
 }
 
 const getEventType = (node: CommitNodeData) => {
@@ -132,8 +135,14 @@ export function CommitTree({ data }: { data: AnalyzeCommitLineageOutput }) {
   const [tree, setTree] = React.useState<(CommitNodeData & { children: CommitNodeData[] })[]>([]);
 
   React.useEffect(() => {
-    setTree(buildTree(data.nodes));
-  }, [data.nodes]);
+    if (data && data.nodes) {
+        setTree(buildTree(data.nodes));
+    }
+  }, [data]);
+
+  if (!data || !data.nodes) {
+      return null;
+  }
 
   return (
     <Card className="shadow-md hover:shadow-xl transition-shadow">
@@ -142,7 +151,7 @@ export function CommitTree({ data }: { data: AnalyzeCommitLineageOutput }) {
           <GitBranch /> Commit Lineage Trace
         </CardTitle>
         <CardDescription>
-          AI-generated analysis of the commit history, visualized as a tree.
+          A deterministic, code-based analysis of the commit history, visualized as a tree.
         </CardDescription>
       </CardHeader>
       <CardContent>
