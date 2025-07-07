@@ -2,7 +2,7 @@
 'use server';
 
 /**
- * @fileOverview Analyzes the commit history of a pull request to trace the lineage of commits.
+ * @fileOverview Analyzes the commit history of a pull request to trace the lineage of commits, recursively handling nested PRs.
  *
  * - analyzeCommitLineage - A function that analyzes the commit lineage.
  * - AnalyzeCommitLineageInput - The input type for the analyzeCommitLineage function.
@@ -11,13 +11,13 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import {getPullRequestData} from '@/ai/tools/github-tools';
 
 const AnalyzeCommitLineageInputSchema = z.object({
   repoOwner: z.string().describe('The owner of the GitHub repository.'),
   repoName: z.string().describe('The name of the GitHub repository.'),
-  pullRequestNumber: z.number().describe('The pull request number.'),
+  pullRequestNumber: z.number().describe('The initial pull request number to start the analysis from.'),
   githubToken: z.string().describe('The GitHub token for authentication.'),
-  commitHistory: z.string().describe('A JSON string containing the commit history. It has two keys: `prCommits` (an array of commit objects from the feature branch) and `mergeCommit` (a single commit object for the final merge/squash commit, or null if not merged).'),
 });
 export type AnalyzeCommitLineageInput = z.infer<typeof AnalyzeCommitLineageInputSchema>;
 
@@ -33,7 +33,7 @@ const CommitNodeSchema = z.object({
 });
 
 const AnalyzeCommitLineageOutputSchema = z.object({
-    summary: z.string().describe('A high-level text summary of the commit lineage, explaining key events like squashes or rebases.'),
+    summary: z.string().describe('A high-level text summary of the commit lineage, explaining key events like squashes or rebases, and mentioning all PRs that were analyzed.'),
     nodes: z.array(CommitNodeSchema).describe('A flat list of all relevant commits as nodes for building a visualization. The client application will use the `parents` array within each node to reconstruct the tree structure.'),
 });
 
@@ -47,29 +47,29 @@ const analyzeCommitLineagePrompt = ai.definePrompt({
   name: 'analyzeCommitLineagePrompt',
   input: {schema: AnalyzeCommitLineageInputSchema},
   output: {schema: AnalyzeCommitLineageOutputSchema},
-  prompt: `You are a Git expert, skilled in tracing commit history. Your task is to analyze the commit history of a GitHub pull request and create a structured representation of the commit lineage for visualization.
+  tools: [getPullRequestData],
+  prompt: `You are a Git detective, specializing in recursively tracing commit history across multiple nested pull requests. Your mission is to build a complete and accurate commit lineage graph.
 
-You will be given a JSON object in the 'commitHistory' field with two properties:
-- \`prCommits\`: An array of commit objects from the original pull request branch.
-- \`mergeCommit\`: An object representing the final commit that was merged into the target branch. This can be a regular merge commit or a squash commit.
+You have access to a powerful tool: \`getPullRequestData\`.
 
-Repository Owner: {{{repoOwner}}}
-Repository Name: {{{repoName}}}
-Pull Request Number: {{{pullRequestNumber}}}
-Commit History: {{{commitHistory}}}
+Your Process:
+1.  **Start Exploration**: Begin with the initial PR number provided (PR {{{pullRequestNumber}}}). Use the \`getPullRequestData\` tool to fetch its data. Maintain a list of PR numbers you have already processed to avoid infinite loops.
+2.  **Recursive Analysis**:
+    *   Examine each commit from the tool's response.
+    *   Pay close attention to merge/squash commit messages. They often contain references to the original PR in the format \`(#<PR_NUMBER>)\`.
+    *   If you find a commit that squashes or merges another PR, and you haven't processed that PR number yet, you **MUST** call \`getPullRequestData\` for that new PR number to get its underlying commits.
+    *   Continue this recursive process until no new, unprocessed PRs are found.
+3.  **Build the Lineage Graph**:
+    *   Collect all unique commits from all the tool calls you made.
+    *   For each commit, create a \`node\` object. If a commit author is not available, use the committer's name or 'N/A'. Ensure every node has its full SHA, a 7-character short SHA, message, author, date, and its correct parent SHAs.
+    *   **Crucially handle squash merges**: A squash merge commit on a target branch (e.g., \`main\`) breaks the direct git parentage to the feature branch commits. To represent this flow visually, you must manually add the SHA of the **last commit from the squashed feature branch** as a parent to the squash merge commit's node in the \`parents\` array. This creates the visual link in the tree.
+    *   Identify the branch for each commit (e.g., "feature/pr-123", "main"). Commits from \`prCommits\` belong to a feature branch, and the \`mergeCommit\` belongs to the target branch.
+    *   Assign a \`type\` to each node: "Squash", "Merge Commit", or "Commit".
+4.  **Final Output**:
+    *   Combine all collected nodes into a single, flat \`nodes\` array. The client will build the tree from this array using the parent relationships.
+    *   Write a comprehensive \`summary\` explaining the lineage you discovered. Mention all the PR numbers you analyzed and describe the key events, especially how different branches were squashed or merged.
 
-Instructions:
-1.  **Process All Commits**: Create nodes for all commits in both \`prCommits\` and the \`mergeCommit\` (if present). These represent the work done.
-2.  **Identify Branches**: Assign commits in \`prCommits\` to a feature branch (e.g., "feature/pr-123"). Assign the \`mergeCommit\` to the main branch (e.g., "main").
-3.  **Detect Key Events & Build Lineage**:
-    *   **If a \`mergeCommit\` is present**:
-        *   **Squash Commit**: If the \`mergeCommit\` has one parent and its message indicates a squash (e.g., contains "Squash merge" or references the PR number), its node \`type\` must be "Squash". A squash breaks the Git parentage. To create a visual link, add the SHA of the **last** commit in the \`prCommits\` array to the \`parents\` array of the \`mergeCommit\` node. This shows that the feature branch work flowed into the squash.
-        *   **Merge Commit**: If the \`mergeCommit\` has more than one parent, its node \`type\` must be "Merge Commit". Its parents should correctly link to the tips of the target and feature branches.
-    *   **For all other commits**: The \`type\` should be "Commit".
-4.  **Construct Nodes**: For each commit, create a node object with its full SHA, a 7-character short SHA, the full commit message, the author's name, the commit date, its actual parent SHAs (with the modification for squashes as described above), the branch, and the event type.
-5.  **Provide Summary**: Write a brief, high-level summary of the analysis. Explicitly state if a squash merge occurred and explain that it combined the feature branch commits into a single commit on the main branch.
-
-The output must be a JSON object matching the provided schema, containing a 'summary' string and a flat 'nodes' array.
+Your final output must be a single JSON object matching the output schema.
 `,
 });
 
@@ -80,6 +80,7 @@ const analyzeCommitLineageFlow = ai.defineFlow(
     outputSchema: AnalyzeCommitLineageOutputSchema,
   },
   async input => {
+    // The model will use the tool to fetch all necessary data.
     const {output} = await analyzeCommitLineagePrompt(input);
     return output!;
   }
