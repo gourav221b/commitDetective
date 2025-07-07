@@ -36,15 +36,16 @@ export async function analyzePullRequest(
 
     const octokit = new Octokit({ auth: githubToken });
 
-    // Fetch PR data for description
-    const prDetails = await octokit.pulls.get({
+    // Fetch PR details
+    const prDetailsResponse = await octokit.pulls.get({
       owner: repoOwner,
       repo: repoName,
       pull_number: pullRequestNumber,
     });
-    const pullRequestDescription = prDetails.data.body || '';
+    const prDetails = prDetailsResponse.data;
+    const pullRequestDescription = prDetails.body || '';
 
-    // Step 1: Extract GitHub Data
+    // Step 1: Extract GitHub Data (original commits on the PR branch)
     const githubData = await extractGitHubData({
       githubToken,
       repoOwner,
@@ -56,14 +57,35 @@ export async function analyzePullRequest(
       return { error: "No commits found for this Pull Request." };
     }
 
-    const commitHistory = githubData.commits
-      .map(c => `Commit: ${c.sha}\nAuthor: ${c.commit.author.name} <${c.commit.author.email}>\nDate: ${c.commit.author.date}\nParents: ${c.parents.map(p => p.sha).join(', ')}\nMessage: ${c.commit.message}\n`)
+    // Check if the PR was merged and get the merge commit details
+    let mergeCommit = null;
+    if (prDetails.merged && prDetails.merge_commit_sha) {
+      try {
+        const commitData = await octokit.repos.getCommit({
+          owner: repoOwner,
+          repo: repoName,
+          ref: prDetails.merge_commit_sha,
+        });
+        mergeCommit = commitData.data;
+      } catch (e) {
+        console.warn(`Could not fetch merge commit ${prDetails.merge_commit_sha}`, e);
+        // Continue without it, the analysis will be based on PR commits only
+      }
+    }
+
+    const commitHistoryForLTC = githubData.commits
+      .map(c => `Commit: ${c.sha}\nAuthor: ${c.commit.author.name} <${c.commit.author.email}>\nDate: ${c.commit.author.date}\nMessage: ${c.commit.message}\n`)
       .join('\n---\n');
+      
+    const commitHistoryForLineage = JSON.stringify({
+      prCommits: githubData.commits,
+      mergeCommit: mergeCommit,
+    });
 
     // Step 2 & 3: Calculate LTC and Analyze Lineage in parallel
     const [ltc, commitLineage] = await Promise.all([
       calculateLTC({
-        commitHistory,
+        commitHistory: commitHistoryForLTC,
         pullRequestDescription,
       }),
       analyzeCommitLineage({
@@ -71,7 +93,7 @@ export async function analyzePullRequest(
         repoName,
         pullRequestNumber,
         githubToken,
-        commitHistory,
+        commitHistory: commitHistoryForLineage,
       }),
     ]);
 
