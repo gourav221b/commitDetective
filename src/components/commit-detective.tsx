@@ -10,7 +10,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ResultsSection } from '@/components/results-section';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2 } from 'lucide-react';
@@ -19,7 +21,9 @@ const formSchema = z.object({
   githubToken: z.string().min(1, 'GitHub token is required.'),
   repoOwner: z.string().min(1, 'Repository owner is required.'),
   repoName: z.string().min(1, 'Repository name is required.'),
-  pullRequestNumber: z.coerce.number({invalid_type_error: "Must be a number"}).int().positive('PR number must be a positive integer.'),
+  pullRequestNumber: z.coerce.number({ invalid_type_error: "Must be a number" }).int().positive('PR number must be a positive integer.'),
+  squashAnalysisDepth: z.enum(['shallow', 'deep']).default('shallow'),
+  enableAdvancedDetection: z.boolean().default(true),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -45,6 +49,8 @@ export function CommitDetective() {
       repoOwner: '',
       repoName: '',
       pullRequestNumber: undefined,
+      squashAnalysisDepth: 'shallow',
+      enableAdvancedDetection: true,
     },
     context: state,
   });
@@ -136,11 +142,80 @@ export function CommitDetective() {
                   </FormItem>
                 )}
               />
+
+              {/* Advanced Squash Detection Configuration */}
+              <div className="space-y-4 p-4 border rounded-lg bg-muted/50">
+                <h3 className="text-sm font-medium">Advanced Squash Detection</h3>
+
+                <FormField
+                  control={form.control}
+                  name="enableAdvancedDetection"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">
+                          Enable Advanced Detection
+                        </FormLabel>
+                        <FormDescription>
+                          Use multiple sophisticated algorithms to detect squash commits with higher accuracy
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="squashAnalysisDepth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Analysis Depth</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "shallow"}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select analysis depth" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="shallow">
+                            <div className="flex flex-col">
+                              <span className="font-medium">Shallow Analysis</span>
+                              <span className="text-xs text-muted-foreground">
+                                Expand only the immediate squash commit (faster)
+                              </span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="deep">
+                            <div className="flex flex-col">
+                              <span className="font-medium">Deep Analysis</span>
+                              <span className="text-xs text-muted-foreground">
+                                Recursively expand all nested squashed PRs (comprehensive)
+                              </span>
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <input type="hidden" name="squashAnalysisDepth" value={field.value || "shallow"} />
+                      <FormDescription>
+                        Choose how deeply to analyze squashed commits. Deep analysis provides complete history but takes longer.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <SubmitButton />
             </div>
           </CardContent>
         </Card>
-        
+
         <StatusDisplay result={state?.result} />
       </form>
     </Form>

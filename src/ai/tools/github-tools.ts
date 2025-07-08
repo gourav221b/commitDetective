@@ -14,6 +14,11 @@ export interface GitHubCommit {
       email: string;
       date: string;
     } | null;
+    committer: {
+      name: string;
+      email: string;
+      date: string;
+    } | null;
     message: string;
   };
   parents: {
@@ -116,6 +121,6 @@ export async function getPullRequestData(
     prCommits: prCommitsResponse.data as any,
     mergeCommit: mergeCommit,
     timelineEvents: timelineEvents,
-    baseCommit: baseCommit,
+    baseCommit: baseCommit || undefined,
   };
 }

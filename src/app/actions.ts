@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { analyzeCommitLineage } from '@/ai/flows/analyze-commit-lineage';
+import { AnalysisDepthManager } from '@/ai/squash-detection/analysis-depth-manager';
 import type { AnalysisResult } from '@/lib/types';
 
 const formSchema = z.object({
@@ -9,6 +10,8 @@ const formSchema = z.object({
   repoOwner: z.string().min(1, 'Repository owner is required.'),
   repoName: z.string().min(1, 'Repository name is required.'),
   pullRequestNumber: z.coerce.number().int().positive('PR number must be a positive integer.'),
+  squashAnalysisDepth: z.enum(['shallow', 'deep']).default('shallow'),
+  enableAdvancedDetection: z.coerce.boolean().default(true),
 });
 
 export async function analyzePullRequest(
@@ -21,6 +24,8 @@ export async function analyzePullRequest(
       repoOwner: formData.get('repoOwner'),
       repoName: formData.get('repoName'),
       pullRequestNumber: formData.get('pullRequestNumber'),
+      squashAnalysisDepth: formData.get('squashAnalysisDepth') || 'shallow',
+      enableAdvancedDetection: formData.get('enableAdvancedDetection'),
     });
 
     if (!validatedFields.success) {
@@ -29,14 +34,27 @@ export async function analyzePullRequest(
       };
     }
 
-    const { githubToken, repoOwner, repoName, pullRequestNumber } = validatedFields.data;
+    const {
+      githubToken,
+      repoOwner,
+      repoName,
+      pullRequestNumber,
+      squashAnalysisDepth,
+      enableAdvancedDetection
+    } = validatedFields.data;
 
-    // This now calls the manual, deterministic lineage builder.
+    // Create squash analysis configuration
+    const squashAnalysisConfig = enableAdvancedDetection
+      ? AnalysisDepthManager.getComprehensiveConfig(squashAnalysisDepth)
+      : AnalysisDepthManager.getPerformanceConfig(squashAnalysisDepth);
+
+    // This now calls the enhanced lineage builder with advanced squash detection.
     const commitLineage = await analyzeCommitLineage({
       repoOwner,
       repoName,
       pullRequestNumber,
       githubToken,
+      squashAnalysisConfig,
     });
 
     return { result: { commitLineage } };

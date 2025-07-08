@@ -3,6 +3,8 @@
 import { Octokit } from '@octokit/rest';
 import type { AnalyzeCommitLineageOutput, CommitNode } from '@/lib/types';
 import { getPullRequestData, GitHubCommit, PullRequestData, TimelineEvent } from '@/ai/tools/github-tools';
+import { AnalysisDepthManager } from '@/ai/squash-detection/analysis-depth-manager';
+import type { SquashAnalysisConfig } from '@/lib/types';
 
 /**
  * Creates a promise that rejects after a specified timeout
@@ -254,6 +256,7 @@ export interface AnalyzeCommitLineageInput {
   repoName: string;
   pullRequestNumber: number;
   githubToken: string;
+  squashAnalysisConfig?: SquashAnalysisConfig;
 }
 
 /**
@@ -262,7 +265,14 @@ export interface AnalyzeCommitLineageInput {
 export async function analyzeCommitLineage(
   input: AnalyzeCommitLineageInput
 ): Promise<AnalyzeCommitLineageOutput> {
-  const { repoOwner, repoName, pullRequestNumber: initialPullRequestNumber, githubToken } = input;
+  const {
+    repoOwner,
+    repoName,
+    pullRequestNumber: initialPullRequestNumber,
+    githubToken,
+    squashAnalysisConfig
+  } = input;
+
   const octokit = new Octokit({ auth: githubToken });
   const nodes = new Map<string, CommitNode>();
   const prQueue: number[] = [initialPullRequestNumber];
@@ -274,6 +284,10 @@ export async function analyzeCommitLineage(
   const maxIterations = 50;
   const operationTimeoutMs = 30000; // 30 seconds per operation
   let iterations = 0;
+
+  // Initialize advanced squash detection
+  const analysisConfig = squashAnalysisConfig || AnalysisDepthManager.getDefaultConfig();
+  const depthManager = new AnalysisDepthManager(octokit, analysisConfig);
 
   while (prQueue.length > 0 && iterations < maxIterations) {
     iterations++;
@@ -327,20 +341,43 @@ export async function analyzeCommitLineage(
           prQueue.push(nestedPrNumber);
         }
 
-        // Use the new git operation detection
-        const gitOperation = detectGitOperation(mergeCommit, prData.prCommits, prBranchName, prData.timelineEvents);
-        const parents = mergeCommit.parents.map(p => p.sha);
+        // Use the advanced squash detection system
+        const squashAnalysis = await depthManager.analyzeWithDepth(
+          mergeCommit,
+          prData.prCommits,
+          prData,
+          repoOwner,
+          repoName,
+          processedPRs
+        );
 
-        // For squash commits, establish proper relationships with original commits
-        if (gitOperation.type === 'Squash' && prData.prCommits.length > 0) {
-          // Add references to the original commits that were squashed
-          const originalCommitShas = prData.prCommits.map(c => c.sha);
-          // Store metadata about the squash operation
-          gitOperation.metadata = {
-            ...gitOperation.metadata,
-            originalCommits: originalCommitShas,
+        const parents = mergeCommit.parents.map(p => p.sha);
+        let gitOperationType = 'Merge Commit';
+        let gitOperationMetadata: any = {};
+
+        if (squashAnalysis.isSquash) {
+          gitOperationType = 'Advanced Squash';
+          gitOperationMetadata = {
+            confidence: squashAnalysis.confidence,
+            detectionMethods: squashAnalysis.analysisMetadata.detectionMethods,
+            analysisDepth: analysisConfig.analysisDepth,
+            expandedCommitsCount: squashAnalysis.expandedCommits.length,
+            reasoning: squashAnalysis.analysisMetadata.reasoning,
+            originalCommits: prData.prCommits.map(c => c.sha),
             squashedFrom: prBranchName
           };
+
+          // Add expanded commits to the nodes map
+          for (const expandedCommit of squashAnalysis.expandedCommits) {
+            if (!nodes.has(expandedCommit.sha)) {
+              nodes.set(expandedCommit.sha, expandedCommit);
+            }
+          }
+        } else {
+          // Fallback to legacy detection for non-squash commits
+          const legacyOperation = detectGitOperation(mergeCommit, prData.prCommits, prBranchName, prData.timelineEvents);
+          gitOperationType = legacyOperation.type;
+          gitOperationMetadata = legacyOperation.metadata || {};
         }
 
         if (!nodes.has(mergeCommitSha)) {
@@ -352,15 +389,15 @@ export async function analyzeCommitLineage(
             date: mergeCommit.commit.author?.date || new Date().toISOString(),
             parents: parents,
             branch: prData.prDetails.base.ref,
-            type: gitOperation.type,
-            metadata: gitOperation.metadata,
+            type: gitOperationType,
+            metadata: gitOperationMetadata,
           });
         } else {
           const existingNode = nodes.get(mergeCommitSha)!;
           existingNode.branch = prData.prDetails.base.ref;
-          existingNode.type = gitOperation.type;
+          existingNode.type = gitOperationType;
           existingNode.parents = parents;
-          existingNode.metadata = gitOperation.metadata;
+          existingNode.metadata = gitOperationMetadata;
         }
       }
     } catch (error) {

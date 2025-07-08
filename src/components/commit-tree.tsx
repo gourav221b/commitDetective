@@ -78,6 +78,7 @@ const EventIcon = ({ type, className }: { type: string, className?: string }) =>
   const typeLower = type.toLowerCase();
 
   if (typeLower.includes('merge')) return <GitMerge className={`${defaultClass} text-purple-500 ${className}`} />;
+  if (typeLower.includes('advanced squash')) return <ArrowDown className={`${defaultClass} text-orange-500 ${className}`} />;
   if (typeLower.includes('squash')) return <ArrowDown className={`${defaultClass} text-yellow-500 ${className}`} />;
   if (typeLower.includes('interactive rebase')) return <Shuffle className={`${defaultClass} text-blue-600 ${className}`} />;
   if (typeLower.includes('simple rebase')) return <RotateCcw className={`${defaultClass} text-blue-400 ${className}`} />;
@@ -88,7 +89,7 @@ const EventIcon = ({ type, className }: { type: string, className?: string }) =>
   return <GitCommit className={`${defaultClass} text-primary ${className}`} />;
 };
 
-function CommitNodeComponent({ node }: { node: (CommitNodeData & { children: CommitNodeData[] }) }) {
+function CommitNodeComponent({ node }: { node: (CommitNodeData & { children?: CommitNodeData[] }) }) {
   const eventType = getEventType(node);
 
   return (
@@ -129,6 +130,25 @@ function CommitNodeComponent({ node }: { node: (CommitNodeData & { children: Com
                   </Badge>
                 </div>
               )}
+              {node.metadata.expandedCommitsCount && (
+                <div className="flex items-center gap-1">
+                  <Badge variant="outline" className="py-0 px-1 text-xs text-orange-600">
+                    {node.metadata.expandedCommitsCount} commits expanded
+                  </Badge>
+                </div>
+              )}
+              {node.metadata.analysisDepth && (
+                <Badge variant="outline" className="py-0 px-1 text-xs text-purple-600">
+                  {node.metadata.analysisDepth} analysis
+                </Badge>
+              )}
+              {node.metadata.detectionMethods && node.metadata.detectionMethods.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Badge variant="outline" className="py-0 px-1 text-xs text-green-600">
+                    {node.metadata.detectionMethods.length} detection methods
+                  </Badge>
+                </div>
+              )}
               {node.metadata.forcePushCount && (
                 <div className="flex items-center gap-1">
                   <Badge variant="destructive" className="py-0 px-1 text-xs">
@@ -145,6 +165,11 @@ function CommitNodeComponent({ node }: { node: (CommitNodeData & { children: Com
                 <Badge variant="outline" className="py-0 px-1 text-xs">
                   {Math.round(node.metadata.confidence * 100)}% confidence
                 </Badge>
+              )}
+              {node.metadata.reasoning && (
+                <div className="text-xs text-muted-foreground mt-1 p-2 bg-muted/30 rounded border-l-2 border-orange-200">
+                  <strong>Detection Reasoning:</strong> {node.metadata.reasoning}
+                </div>
               )}
             </div>
           )}

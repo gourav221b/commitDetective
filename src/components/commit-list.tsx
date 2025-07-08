@@ -1,4 +1,4 @@
-import type { GitHubCommit } from '@/ai/flows/extract-github-data';
+import type { GitHubCommit } from '@/ai/tools/github-tools';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { GitCommit, User, Calendar, GitBranch } from 'lucide-react';
@@ -34,7 +34,7 @@ export function CommitList({ commits }: { commits: GitHubCommit[] }) {
                   </Badge>
                   <Badge variant="outline" className="flex items-center gap-1.5">
                     <Calendar size={14} />
-                    {format(parseISO(commit.commit.author.date), "MMM d, yyyy 'at' hh:mm a")}
+                    {commit.commit.author ? format(parseISO(commit.commit.author.date), "MMM d, yyyy 'at' hh:mm a") : 'Unknown date'}
                   </Badge>
                 </div>
               </div>
