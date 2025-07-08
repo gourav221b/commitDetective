@@ -32,6 +32,18 @@ export interface PullRequestData {
   prDetails: PullRequestDetails;
   prCommits: GitHubCommit[];
   mergeCommit: GitHubCommit | null;
+  timelineEvents?: TimelineEvent[];
+  baseCommit?: GitHubCommit;
+}
+
+export interface TimelineEvent {
+  event: string;
+  created_at: string;
+  actor?: {
+    login: string;
+  };
+  commit_id?: string;
+  commit_url?: string;
 }
 
 export async function getPullRequestData(
@@ -70,9 +82,40 @@ export async function getPullRequestData(
     }
   }
 
+  // Fetch timeline events for rebase detection
+  let timelineEvents: TimelineEvent[] = [];
+  try {
+    const timelineResponse = await octokit.issues.listEventsForTimeline({
+      owner: repoOwner,
+      repo: repoName,
+      issue_number: pullRequestNumber,
+      per_page: 100,
+    });
+    timelineEvents = timelineResponse.data.filter((event: any) =>
+      ['head_ref_force_pushed', 'base_ref_changed', 'committed'].includes(event.event)
+    ) as TimelineEvent[];
+  } catch (e) {
+    console.warn(`Could not fetch timeline events for PR #${pullRequestNumber}`, e);
+  }
+
+  // Fetch base commit for comparison
+  let baseCommit: GitHubCommit | null = null;
+  try {
+    const baseCommitData = await octokit.repos.getCommit({
+      owner: repoOwner,
+      repo: repoName,
+      ref: prDetailsResponse.data.base.sha,
+    });
+    baseCommit = baseCommitData.data as any;
+  } catch (e) {
+    console.warn(`Could not fetch base commit ${prDetailsResponse.data.base.sha}`, e);
+  }
+
   return {
     prDetails: prDetailsResponse.data as any,
     prCommits: prCommitsResponse.data as any,
     mergeCommit: mergeCommit,
+    timelineEvents: timelineEvents,
+    baseCommit: baseCommit,
   };
 }

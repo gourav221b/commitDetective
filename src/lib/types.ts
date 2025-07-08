@@ -8,6 +8,16 @@ export interface CommitNode {
   parents: string[];
   branch?: string;
   type?: string;
+  metadata?: {
+    originalCommitCount?: number;
+    originalCommits?: string[];
+    squashedFrom?: string;
+    modifiedHistory?: boolean;
+    linearHistory?: boolean;
+    baseChanged?: boolean;
+    confidence?: number;
+    [key: string]: any;
+  };
 }
 
 export interface AnalyzeCommitLineageOutput {
