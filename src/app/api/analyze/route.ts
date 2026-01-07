@@ -4,6 +4,8 @@ import { analyzeCommitLineage } from '@/ai/flows/analyze-commit-lineage';
 import { AnalysisDepthManager } from '@/ai/squash-detection/analysis-depth-manager';
 import type { AnalysisResult } from '@/lib/types';
 
+export const runtime = 'edge';
+
 // Request validation schema
 const analyzeRequestSchema = z.object({
   githubToken: z.string().min(1, 'GitHub token is required.'),
