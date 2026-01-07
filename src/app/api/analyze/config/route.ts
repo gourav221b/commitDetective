@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { AnalysisDepthManager } from '@/ai/squash-detection/analysis-depth-manager';
 
+export const runtime = 'edge';
+
 // CORS headers for cross-origin requests
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
